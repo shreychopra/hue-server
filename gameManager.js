@@ -95,8 +95,16 @@ function revealRound(io, roomCode) {
   const names = Object.keys(room.submissions)
   const colours = names.map(name => room.submissions[name])
 
+  // Circular mean for hue to handle the 0/360 wraparound correctly
+  function circularMeanHue(hues) {
+    const sinSum = hues.reduce((sum, h) => sum + Math.sin(h * Math.PI / 180), 0)
+    const cosSum = hues.reduce((sum, h) => sum + Math.cos(h * Math.PI / 180), 0)
+    const mean = Math.atan2(sinSum / hues.length, cosSum / hues.length) * 180 / Math.PI
+    return (mean + 360) % 360
+  }
+
   const average = {
-    h: colours.reduce((sum, c) => sum + c.h, 0) / colours.length,
+    h: circularMeanHue(colours.map(c => c.h)),
     s: colours.reduce((sum, c) => sum + c.s, 0) / colours.length,
     b: colours.reduce((sum, c) => sum + c.b, 0) / colours.length
   }
