@@ -94,28 +94,32 @@ function revealRound(io, roomCode) {
 
   const names = Object.keys(room.submissions)
   const colours = names.map(name => room.submissions[name])
-
-  // Convert all colours to Lab for perceptually correct averaging
   const labColours = colours.map(c => hsbToLab(c.h, c.s, c.b))
 
-  // Average in Lab space — perceptually uniform, no wraparound issues
+  // Average in Lab space for display purposes only
   const avgLab = {
     l: labColours.reduce((sum, c) => sum + c.l, 0) / labColours.length,
     a: labColours.reduce((sum, c) => sum + c.a, 0) / labColours.length,
     b: labColours.reduce((sum, c) => sum + c.b, 0) / labColours.length
   }
 
-  // Convert average Lab back to HSB for display purposes
   const avgHsb = labToHsb(avgLab)
 
-  // Score each player
+  // Score each player by their average Delta-E distance to ALL other players
+  // This means: if you picked a colour close to everyone else, you score high
+  // If you picked an outlier, you score low
+  // With 2 players this correctly gives different scores when colours differ
   const scores = {}
   names.forEach((name, i) => {
-    const dist = deltaE(labColours[i], avgLab)
-    scores[name] = Math.round(Math.max(0, 100 - dist))
+    const otherLabs = labColours.filter((_, j) => j !== i)
+    if (otherLabs.length === 0) {
+      scores[name] = 100
+      return
+    }
+    const avgDistToOthers = otherLabs.reduce((sum, other) => sum + deltaE(labColours[i], other), 0) / otherLabs.length
+    scores[name] = Math.round(Math.max(0, 100 - avgDistToOthers))
   })
 
-  // Update totals
   room.players.forEach(p => {
     p.score += scores[p.name] || 0
   })
