@@ -94,31 +94,19 @@ function revealRound(io, roomCode) {
 
   const names = Object.keys(room.submissions)
   const colours = names.map(name => room.submissions[name])
-  const labColours = colours.map(c => hsbToLab(c.h, c.s, c.b))
 
-  // Average in Lab space for display purposes only
-  const avgLab = {
-    l: labColours.reduce((sum, c) => sum + c.l, 0) / labColours.length,
-    a: labColours.reduce((sum, c) => sum + c.a, 0) / labColours.length,
-    b: labColours.reduce((sum, c) => sum + c.b, 0) / labColours.length
+  // Circular mean for hue — handles 0/360 wraparound correctly
+  const sinSum = colours.reduce((sum, c) => sum + Math.sin(c.h * Math.PI / 180), 0)
+  const cosSum = colours.reduce((sum, c) => sum + Math.cos(c.h * Math.PI / 180), 0)
+  const avgH = (Math.atan2(sinSum / colours.length, cosSum / colours.length) * 180 / Math.PI + 360) % 360
+
+  const average = {
+    h: avgH,
+    s: colours.reduce((sum, c) => sum + c.s, 0) / colours.length,
+    b: colours.reduce((sum, c) => sum + c.b, 0) / colours.length
   }
 
-  const avgHsb = labToHsb(avgLab)
-
-  // Score each player by their average Delta-E distance to ALL other players
-  // This means: if you picked a colour close to everyone else, you score high
-  // If you picked an outlier, you score low
-  // With 2 players this correctly gives different scores when colours differ
-  const scores = {}
-  names.forEach((name, i) => {
-    const otherLabs = labColours.filter((_, j) => j !== i)
-    if (otherLabs.length === 0) {
-      scores[name] = 100
-      return
-    }
-    const avgDistToOthers = otherLabs.reduce((sum, other) => sum + deltaE(labColours[i], other), 0) / otherLabs.length
-    scores[name] = Math.round(Math.max(0, 100 - avgDistToOthers))
-  })
+  const scores = calculateScores(room.submissions, average)
 
   room.players.forEach(p => {
     p.score += scores[p.name] || 0
@@ -127,8 +115,28 @@ function revealRound(io, roomCode) {
   io.to(roomCode).emit('round_reveal', {
     submissions: room.submissions,
     scores,
-    average: avgHsb
+    average
   })
+}
+
+function calculateScores(submissions, average) {
+  const avgLab = hsbToLab(average.h, average.s, average.b)
+  const scores = {}
+
+  // Sigmoid curve: score = 100 / (1 + (deltaE / midpoint) ^ steepness)
+  // midpoint: deltaE at which you score 50 points — set to 30 (moderate disagreement)
+  // steepness: how sharply the curve drops — set to 2 (smooth falloff)
+  const midpoint = 30
+  const steepness = 2
+
+  Object.entries(submissions).forEach(([name, colour]) => {
+    const playerLab = hsbToLab(colour.h, colour.s, colour.b)
+    const de = deltaE(playerLab, avgLab)
+    const score = 100 / (1 + Math.pow(de / midpoint, steepness))
+    scores[name] = Math.round(score)
+  })
+
+  return scores
 }
 
 function nextRound(io, roomCode) {
@@ -214,50 +222,6 @@ function hsbToLab(h, s, b) {
     a: 500 * (ff(fx) - ff(fy)),
     b: 200 * (ff(fy) - ff(fz))
   }
-}
-
-function labToHsb(lab) {
-  // Lab → XYZ
-  const fy = (lab.l + 16) / 116
-  const fx = lab.a / 500 + fy
-  const fz = fy - lab.b / 200
-
-  const x = (fx > 0.206897 ? Math.pow(fx, 3) : (fx - 16 / 116) / 7.787) * 95.047
-  const y = (fy > 0.206897 ? Math.pow(fy, 3) : (fy - 16 / 116) / 7.787) * 100.000
-  const z = (fz > 0.206897 ? Math.pow(fz, 3) : (fz - 16 / 116) / 7.787) * 108.883
-
-  // XYZ → RGB (linear)
-  let r = x * 3.2406 + y * -1.5372 + z * -0.4986
-  let g = x * -0.9689 + y * 1.8758 + z * 0.0415
-  let b = x * 0.0557 + y * -0.2040 + z * 1.0570
-
-  // Clamp
-  r = Math.max(0, Math.min(1, r / 100))
-  g = Math.max(0, Math.min(1, g / 100))
-  b = Math.max(0, Math.min(1, b / 100))
-
-  // Apply gamma
-  r = r > 0.0031308 ? 1.055 * Math.pow(r, 1 / 2.4) - 0.055 : 12.92 * r
-  g = g > 0.0031308 ? 1.055 * Math.pow(g, 1 / 2.4) - 0.055 : 12.92 * g
-  b = b > 0.0031308 ? 1.055 * Math.pow(b, 1 / 2.4) - 0.055 : 12.92 * b
-
-  // RGB → HSB
-  const max = Math.max(r, g, b)
-  const min = Math.min(r, g, b)
-  const diff = max - min
-
-  let h = 0
-  if (diff !== 0) {
-    if (max === r) h = ((g - b) / diff + 6) % 6
-    else if (max === g) h = (b - r) / diff + 2
-    else h = (r - g) / diff + 4
-    h *= 60
-  }
-
-  const s = max === 0 ? 0 : (diff / max) * 100
-  const brightness = max * 100
-
-  return { h, s, b: brightness }
 }
 
 function deltaE(lab1, lab2) {
