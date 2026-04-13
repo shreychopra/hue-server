@@ -95,22 +95,27 @@ function revealRound(io, roomCode) {
   const names = Object.keys(room.submissions)
   const colours = names.map(name => room.submissions[name])
 
-  // Circular mean for hue to handle the 0/360 wraparound correctly
-  function circularMeanHue(hues) {
-    const sinSum = hues.reduce((sum, h) => sum + Math.sin(h * Math.PI / 180), 0)
-    const cosSum = hues.reduce((sum, h) => sum + Math.cos(h * Math.PI / 180), 0)
-    const mean = Math.atan2(sinSum / hues.length, cosSum / hues.length) * 180 / Math.PI
-    return (mean + 360) % 360
+  // Convert all colours to Lab for perceptually correct averaging
+  const labColours = colours.map(c => hsbToLab(c.h, c.s, c.b))
+
+  // Average in Lab space — perceptually uniform, no wraparound issues
+  const avgLab = {
+    l: labColours.reduce((sum, c) => sum + c.l, 0) / labColours.length,
+    a: labColours.reduce((sum, c) => sum + c.a, 0) / labColours.length,
+    b: labColours.reduce((sum, c) => sum + c.b, 0) / labColours.length
   }
 
-  const average = {
-    h: circularMeanHue(colours.map(c => c.h)),
-    s: colours.reduce((sum, c) => sum + c.s, 0) / colours.length,
-    b: colours.reduce((sum, c) => sum + c.b, 0) / colours.length
-  }
+  // Convert average Lab back to HSB for display purposes
+  const avgHsb = labToHsb(avgLab)
 
-  const scores = calculateScores(room.submissions, average)
+  // Score each player
+  const scores = {}
+  names.forEach((name, i) => {
+    const dist = deltaE(labColours[i], avgLab)
+    scores[name] = Math.round(Math.max(0, 100 - dist))
+  })
 
+  // Update totals
   room.players.forEach(p => {
     p.score += scores[p.name] || 0
   })
@@ -118,7 +123,7 @@ function revealRound(io, roomCode) {
   io.to(roomCode).emit('round_reveal', {
     submissions: room.submissions,
     scores,
-    average
+    average: avgHsb
   })
 }
 
@@ -207,25 +212,56 @@ function hsbToLab(h, s, b) {
   }
 }
 
+function labToHsb(lab) {
+  // Lab → XYZ
+  const fy = (lab.l + 16) / 116
+  const fx = lab.a / 500 + fy
+  const fz = fy - lab.b / 200
+
+  const x = (fx > 0.206897 ? Math.pow(fx, 3) : (fx - 16 / 116) / 7.787) * 95.047
+  const y = (fy > 0.206897 ? Math.pow(fy, 3) : (fy - 16 / 116) / 7.787) * 100.000
+  const z = (fz > 0.206897 ? Math.pow(fz, 3) : (fz - 16 / 116) / 7.787) * 108.883
+
+  // XYZ → RGB (linear)
+  let r = x * 3.2406 + y * -1.5372 + z * -0.4986
+  let g = x * -0.9689 + y * 1.8758 + z * 0.0415
+  let b = x * 0.0557 + y * -0.2040 + z * 1.0570
+
+  // Clamp
+  r = Math.max(0, Math.min(1, r / 100))
+  g = Math.max(0, Math.min(1, g / 100))
+  b = Math.max(0, Math.min(1, b / 100))
+
+  // Apply gamma
+  r = r > 0.0031308 ? 1.055 * Math.pow(r, 1 / 2.4) - 0.055 : 12.92 * r
+  g = g > 0.0031308 ? 1.055 * Math.pow(g, 1 / 2.4) - 0.055 : 12.92 * g
+  b = b > 0.0031308 ? 1.055 * Math.pow(b, 1 / 2.4) - 0.055 : 12.92 * b
+
+  // RGB → HSB
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const diff = max - min
+
+  let h = 0
+  if (diff !== 0) {
+    if (max === r) h = ((g - b) / diff + 6) % 6
+    else if (max === g) h = (b - r) / diff + 2
+    else h = (r - g) / diff + 4
+    h *= 60
+  }
+
+  const s = max === 0 ? 0 : (diff / max) * 100
+  const brightness = max * 100
+
+  return { h, s, b: brightness }
+}
+
 function deltaE(lab1, lab2) {
   return Math.sqrt(
     Math.pow(lab1.l - lab2.l, 2) +
     Math.pow(lab1.a - lab2.a, 2) +
     Math.pow(lab1.b - lab2.b, 2)
   )
-}
-
-function calculateScores(submissions, average) {
-  const avgLab = hsbToLab(average.h, average.s, average.b)
-  const scores = {}
-
-  Object.entries(submissions).forEach(([name, colour]) => {
-    const playerLab = hsbToLab(colour.h, colour.s, colour.b)
-    const distance = deltaE(playerLab, avgLab)
-    scores[name] = Math.round(Math.max(0, 100 - distance))
-  })
-
-  return scores
 }
 
 module.exports = { startGame, submitColour, nextRound, playAgain }
