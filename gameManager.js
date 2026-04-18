@@ -3,12 +3,13 @@ const { getRoom } = require('./roomManager')
 
 const ROUND_START_DURATION = 3
 const PICKING_DURATION = 20
+const { selectWords } = require('./wordBank')
 
 function startGame(io, roomCode) {
   const room = getRoom(roomCode)
   if (!room) return
 
-  room.words = selectWords()
+  room.words = selectWords(room.mode || 'classic')
   room.round = 0
   room.state = 'IN_PROGRESS'
   room.players.forEach(p => p.score = 0)

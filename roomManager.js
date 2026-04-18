@@ -7,23 +7,19 @@ const sessions = {} // { sessionId: { name, roomCode } }
 
 // Create a new room, returns the room object
 function createRoom(hostId, hostName) {
-  // Keep generating codes until we find one not already in use
   let code = generateCode()
-  while (rooms[code]) {
-    code = generateCode()
-  }
+  while (rooms[code]) code = generateCode()
 
   rooms[code] = {
     code,
     hostId,
-    players: [
-      { id: hostId, name: hostName, score: 0 }
-    ],
+    players: [{ id: hostId, name: hostName, score: 0 }],
     state: 'WAITING',
     round: 0,
     words: [],
     submissions: {},
-    timer: null
+    timer: null,
+    mode: 'classic'   // default mode
   }
 
   return rooms[code]
@@ -135,4 +131,11 @@ function restorePlayer(sessionId, newSocketId) {
   return room
 }
 
-module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId, saveSession, getSession, clearSession, restorePlayer }
+function setRoomMode(roomCode, mode) {
+  const room = rooms[roomCode]
+  if (!room) return false
+  room.mode = mode
+  return true
+}
+
+module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId, saveSession, getSession, clearSession, restorePlayer, setRoomMode }

@@ -5,6 +5,15 @@ const cors = require('cors')
 const { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId, saveSession, getSession, clearSession, restorePlayer } = require('./roomManager')
 const { startGame, submitColour, nextRound, playAgain } = require('./gameManager')
 
+// --- SET MODE (host only) ---
+socket.on('set_mode', ({ code, mode }) => {
+  const room = getRoom(code)
+  if (!room) return
+  if (room.hostId !== socket.id) return
+  setRoomMode(code, mode)
+  io.to(code).emit('mode_changed', { mode })
+})
+
 const app = express()
 app.use(cors())
 
@@ -32,7 +41,8 @@ io.on('connection', (socket) => {
     socket.emit('room_created', {
       code: room.code,
       players: room.players,
-      hostId: room.hostId
+      hostId: room.hostId,
+      mode: room.mode
     })
     console.log(`Room ${room.code} created by ${name}`)
   })
@@ -49,7 +59,8 @@ io.on('connection', (socket) => {
     socket.emit('room_joined', {
       code: result.code,
       players: result.players,
-      hostId: result.hostId
+      hostId: result.hostId,
+      mode: result.mode
     })
     socket.to(result.code).emit('player_joined', {
       players: result.players
