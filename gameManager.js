@@ -93,34 +93,17 @@ function revealRound(io, roomCode) {
   room.state = 'REVEAL'
 
   const allNames = Object.keys(room.submissions)
-
-  // Separate genuine submissions from forfeits
   const genuineNames = allNames.filter(name => !room.submissions[name].forfeited)
   const forfeitedNames = allNames.filter(name => room.submissions[name].forfeited)
 
   const scores = {}
-
-  // Forfeited players always score 0
   forfeitedNames.forEach(name => { scores[name] = 0 })
 
   if (genuineNames.length === 0) {
-    // Everyone forfeited — give everyone 0
     allNames.forEach(name => { scores[name] = 0 })
   } else if (genuineNames.length === 1) {
-    // Only one genuine submission — give them 100, they had no one to compare with
     scores[genuineNames[0]] = 100
-  } else if (genuineNames.length === 2) {
-    // 2 genuine players — direct Delta-E between them
-    const colA = room.submissions[genuineNames[0]]
-    const colB = room.submissions[genuineNames[1]]
-    const labA = hsbToLab(colA.h, colA.s, colA.b)
-    const labB = hsbToLab(colB.h, colB.s, colB.b)
-    const de = deltaE(labA, labB)
-    const score = Math.round(100 / (1 + Math.pow(de / 30, 2)))
-    scores[genuineNames[0]] = score
-    scores[genuineNames[1]] = score
   } else {
-    // 3+ genuine players — average-based scoring
     const genuineColours = genuineNames.map(name => room.submissions[name])
 
     const sinSum = genuineColours.reduce((sum, c) => sum + Math.sin(c.h * Math.PI / 180), 0)
@@ -133,16 +116,20 @@ function revealRound(io, roomCode) {
       b: genuineColours.reduce((sum, c) => sum + c.b, 0) / genuineColours.length
     }
 
+    // Score in HSB-averaged Lab space
+    // HSB average is not perceptually equidistant from all players
+    // which naturally produces different scores even with 2 players
     const avgLab = hsbToLab(average.h, average.s, average.b)
 
     genuineNames.forEach(name => {
-      const playerLab = hsbToLab(room.submissions[name].h, room.submissions[name].s, room.submissions[name].b)
+      const col = room.submissions[name]
+      const playerLab = hsbToLab(col.h, col.s, col.b)
       const de = deltaE(playerLab, avgLab)
       scores[name] = Math.round(100 / (1 + Math.pow(de / 30, 2)))
     })
   }
 
-  // Calculate average for display (use genuine submissions only)
+  // Display average from genuine submissions only
   const displayColours = genuineNames.length > 0
     ? genuineNames.map(name => room.submissions[name])
     : allNames.map(name => room.submissions[name])

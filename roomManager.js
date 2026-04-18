@@ -120,16 +120,17 @@ function restorePlayer(sessionId, newSocketId) {
     return null
   }
 
-  // Check if player is already in room (shouldn't be, but guard anyway)
   const existing = room.players.find(p => p.name === session.name)
   if (existing) {
-    // Update their socket ID to the new one
     existing.id = newSocketId
     if (room.hostId === existing.id) room.hostId = newSocketId
     return room
   }
 
-  // Re-add them if they were removed during disconnect
+  // Only re-add if game is still in waiting state
+  // Don't restore mid-game as it causes state confusion
+  if (room.state !== 'WAITING') return null
+
   room.players.push({ id: newSocketId, name: session.name, score: 0 })
   return room
 }
