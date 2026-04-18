@@ -3,18 +3,7 @@ const http = require('http')
 const { Server } = require('socket.io')
 const cors = require('cors')
 const { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId, saveSession, getSession, clearSession, restorePlayer } = require('./roomManager')
-const { startGame, submitColour, nextRound, playAgain } = require('./gameManager')
-
-// --- SET MODE (host only) ---
-io.on('connection', (socket) => {
-  socket.on('set_mode', ({ code, mode }) => {
-    const room = getRoom(code)
-    if (!room) return
-    if (room.hostId !== socket.id) return
-    setRoomMode(code, mode)
-    io.to(code).emit('mode_changed', { mode })
-  })
-})
+const { startGame, submitColour, nextRound, playAgain, setRoomMode } = require('./gameManager')
 
 const app = express()
 app.use(cors())
@@ -34,6 +23,17 @@ const io = new Server(server, {
 
 io.on('connection', (socket) => {
   console.log('Player connected:', socket.id)
+
+  // --- SET MODE (host only) ---
+  io.on('connection', (socket) => {
+    socket.on('set_mode', ({ code, mode }) => {
+      const room = getRoom(code)
+      if (!room) return
+      if (room.hostId !== socket.id) return
+      setRoomMode(code, mode)
+      io.to(code).emit('mode_changed', { mode })
+    })
+  })
 
   // --- CREATE ROOM ---
   socket.on('create_room', ({ name, sessionId }) => {
