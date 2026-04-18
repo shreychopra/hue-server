@@ -151,7 +151,9 @@ function revealRound(io, roomCode) {
   io.to(roomCode).emit('round_reveal', {
     submissions: room.submissions,
     scores,
-    average
+    average,
+    word: room.words[room.round - 1],
+    round: room.round
   })
 }
 
