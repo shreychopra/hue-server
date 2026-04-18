@@ -6,12 +6,14 @@ const { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId, saveSession
 const { startGame, submitColour, nextRound, playAgain } = require('./gameManager')
 
 // --- SET MODE (host only) ---
-socket.on('set_mode', ({ code, mode }) => {
-  const room = getRoom(code)
-  if (!room) return
-  if (room.hostId !== socket.id) return
-  setRoomMode(code, mode)
-  io.to(code).emit('mode_changed', { mode })
+io.on('connection', (socket) => {
+  socket.on('set_mode', ({ code, mode }) => {
+    const room = getRoom(code)
+    if (!room) return
+    if (room.hostId !== socket.id) return
+    setRoomMode(code, mode)
+    io.to(code).emit('mode_changed', { mode })
+  })
 })
 
 const app = express()
