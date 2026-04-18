@@ -3,6 +3,7 @@ const { generateCode } = require('./utils/generateCode')
 // All active rooms stored in memory
 // Structure: { roomCode: roomObject }
 const rooms = {}
+const sessions = {} // { sessionId: { name, roomCode } }
 
 // Create a new room, returns the room object
 function createRoom(hostId, hostName) {
@@ -97,4 +98,40 @@ function getRoomByPlayerId(playerId) {
   return null
 }
 
-module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId }
+function saveSession(sessionId, name, roomCode) {
+  sessions[sessionId] = { name, roomCode }
+}
+
+function getSession(sessionId) {
+  return sessions[sessionId] || null
+}
+
+function clearSession(sessionId) {
+  delete sessions[sessionId]
+}
+
+function restorePlayer(sessionId, newSocketId) {
+  const session = sessions[sessionId]
+  if (!session) return null
+
+  const room = rooms[session.roomCode]
+  if (!room) {
+    delete sessions[sessionId]
+    return null
+  }
+
+  // Check if player is already in room (shouldn't be, but guard anyway)
+  const existing = room.players.find(p => p.name === session.name)
+  if (existing) {
+    // Update their socket ID to the new one
+    existing.id = newSocketId
+    if (room.hostId === existing.id) room.hostId = newSocketId
+    return room
+  }
+
+  // Re-add them if they were removed during disconnect
+  room.players.push({ id: newSocketId, name: session.name, score: 0 })
+  return room
+}
+
+module.exports = { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId, saveSession, getSession, clearSession, restorePlayer }

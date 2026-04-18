@@ -2,7 +2,7 @@ const express = require('express')
 const http = require('http')
 const { Server } = require('socket.io')
 const cors = require('cors')
-const { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId } = require('./roomManager')
+const { createRoom, joinRoom, leaveRoom, getRoom, getRoomByPlayerId, saveSession, getSession, clearSession, restorePlayer } = require('./roomManager')
 const { startGame, submitColour, nextRound, playAgain } = require('./gameManager')
 
 const app = express()
@@ -13,6 +13,8 @@ const server = http.createServer(app)
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173'
 
 const io = new Server(server, {
+  pingTimeout: 60000,
+  pingInterval: 25000,
   cors: {
     origin: CLIENT_URL,
     methods: ['GET', 'POST']
@@ -23,9 +25,10 @@ io.on('connection', (socket) => {
   console.log('Player connected:', socket.id)
 
   // --- CREATE ROOM ---
-  socket.on('create_room', ({ name }) => {
+  socket.on('create_room', ({ name, sessionId }) => {
     const room = createRoom(socket.id, name)
     socket.join(room.code)
+    if (sessionId) saveSession(sessionId, name, room.code)
     socket.emit('room_created', {
       code: room.code,
       players: room.players,
@@ -35,13 +38,14 @@ io.on('connection', (socket) => {
   })
 
   // --- JOIN ROOM ---
-  socket.on('join_room', ({ code, name }) => {
+  socket.on('join_room', ({ code, name, sessionId }) => {
     const result = joinRoom(code.toUpperCase(), socket.id, name)
     if (result.error) {
       socket.emit('error', { message: result.error })
       return
     }
     socket.join(result.code)
+    if (sessionId) saveSession(sessionId, name, result.code)
     socket.emit('room_joined', {
       code: result.code,
       players: result.players,
@@ -51,6 +55,41 @@ io.on('connection', (socket) => {
       players: result.players
     })
     console.log(`${name} joined room ${result.code}`)
+  })
+
+  // --- RESTORE SESSION (reconnect after tab switch) ---
+  socket.on('restore_session', ({ sessionId }) => {
+    const session = getSession(sessionId)
+    if (!session) {
+      socket.emit('session_not_found')
+      return
+    }
+
+    const room = restorePlayer(sessionId, socket.id)
+    if (!room) {
+      clearSession(sessionId)
+      socket.emit('session_not_found')
+      return
+    }
+
+    socket.join(room.code)
+
+    // Tell this player their state is restored
+    socket.emit('session_restored', {
+      code: room.code,
+      players: room.players,
+      hostId: room.hostId,
+      state: room.state,
+      round: room.round,
+      name: session.name
+    })
+
+    // Tell others they're back
+    socket.to(room.code).emit('player_joined', {
+      players: room.players
+    })
+
+    console.log(`Session restored for ${session.name} in room ${room.code}`)
   })
 
   // --- START GAME ---
@@ -98,10 +137,11 @@ io.on('connection', (socket) => {
 
   // --- DISCONNECT ---
   socket.on('disconnect', () => {
-    // Check if this socket was the host BEFORE removing them
     const roomBefore = getRoomByPlayerId(socket.id)
     const wasHost = roomBefore ? roomBefore.hostId === socket.id : false
 
+    // Don't immediately remove — session may be restoring
+    // leaveRoom is still called but session persists for reconnection
     const room = leaveRoom(socket.id)
 
     if (room) {

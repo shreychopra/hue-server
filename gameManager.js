@@ -60,7 +60,7 @@ function startPicking(io, roomCode) {
         // Fill in grey only for players who truly never submitted anything
         room.players.forEach(p => {
           if (!room.submissions[p.name]) {
-            room.submissions[p.name] = { h: 0, s: 0, b: 50 }
+            room.submissions[p.name] = { h: 0, s: 0, b: 50, forfeited: true }
           }
         })
         revealRound(io, roomCode)
@@ -92,21 +92,70 @@ function revealRound(io, roomCode) {
 
   room.state = 'REVEAL'
 
-  const names = Object.keys(room.submissions)
-  const colours = names.map(name => room.submissions[name])
+  const allNames = Object.keys(room.submissions)
 
-  // Circular mean for hue — handles 0/360 wraparound correctly
-  const sinSum = colours.reduce((sum, c) => sum + Math.sin(c.h * Math.PI / 180), 0)
-  const cosSum = colours.reduce((sum, c) => sum + Math.cos(c.h * Math.PI / 180), 0)
-  const avgH = (Math.atan2(sinSum / colours.length, cosSum / colours.length) * 180 / Math.PI + 360) % 360
+  // Separate genuine submissions from forfeits
+  const genuineNames = allNames.filter(name => !room.submissions[name].forfeited)
+  const forfeitedNames = allNames.filter(name => room.submissions[name].forfeited)
+
+  const scores = {}
+
+  // Forfeited players always score 0
+  forfeitedNames.forEach(name => { scores[name] = 0 })
+
+  if (genuineNames.length === 0) {
+    // Everyone forfeited — give everyone 0
+    allNames.forEach(name => { scores[name] = 0 })
+  } else if (genuineNames.length === 1) {
+    // Only one genuine submission — give them 100, they had no one to compare with
+    scores[genuineNames[0]] = 100
+  } else if (genuineNames.length === 2) {
+    // 2 genuine players — direct Delta-E between them
+    const colA = room.submissions[genuineNames[0]]
+    const colB = room.submissions[genuineNames[1]]
+    const labA = hsbToLab(colA.h, colA.s, colA.b)
+    const labB = hsbToLab(colB.h, colB.s, colB.b)
+    const de = deltaE(labA, labB)
+    const score = Math.round(100 / (1 + Math.pow(de / 30, 2)))
+    scores[genuineNames[0]] = score
+    scores[genuineNames[1]] = score
+  } else {
+    // 3+ genuine players — average-based scoring
+    const genuineColours = genuineNames.map(name => room.submissions[name])
+
+    const sinSum = genuineColours.reduce((sum, c) => sum + Math.sin(c.h * Math.PI / 180), 0)
+    const cosSum = genuineColours.reduce((sum, c) => sum + Math.cos(c.h * Math.PI / 180), 0)
+    const avgH = (Math.atan2(sinSum / genuineColours.length, cosSum / genuineColours.length) * 180 / Math.PI + 360) % 360
+
+    const average = {
+      h: avgH,
+      s: genuineColours.reduce((sum, c) => sum + c.s, 0) / genuineColours.length,
+      b: genuineColours.reduce((sum, c) => sum + c.b, 0) / genuineColours.length
+    }
+
+    const avgLab = hsbToLab(average.h, average.s, average.b)
+
+    genuineNames.forEach(name => {
+      const playerLab = hsbToLab(room.submissions[name].h, room.submissions[name].s, room.submissions[name].b)
+      const de = deltaE(playerLab, avgLab)
+      scores[name] = Math.round(100 / (1 + Math.pow(de / 30, 2)))
+    })
+  }
+
+  // Calculate average for display (use genuine submissions only)
+  const displayColours = genuineNames.length > 0
+    ? genuineNames.map(name => room.submissions[name])
+    : allNames.map(name => room.submissions[name])
+
+  const sinSum = displayColours.reduce((sum, c) => sum + Math.sin(c.h * Math.PI / 180), 0)
+  const cosSum = displayColours.reduce((sum, c) => sum + Math.cos(c.h * Math.PI / 180), 0)
+  const avgH = (Math.atan2(sinSum / displayColours.length, cosSum / displayColours.length) * 180 / Math.PI + 360) % 360
 
   const average = {
     h: avgH,
-    s: colours.reduce((sum, c) => sum + c.s, 0) / colours.length,
-    b: colours.reduce((sum, c) => sum + c.b, 0) / colours.length
+    s: displayColours.reduce((sum, c) => sum + c.s, 0) / displayColours.length,
+    b: displayColours.reduce((sum, c) => sum + c.b, 0) / displayColours.length
   }
-
-  const scores = calculateScores(room.submissions, average)
 
   room.players.forEach(p => {
     p.score += scores[p.name] || 0
