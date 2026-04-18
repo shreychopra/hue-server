@@ -3,7 +3,6 @@ const { getRoom } = require('./roomManager')
 
 const ROUND_START_DURATION = 3
 const PICKING_DURATION = 20
-const { selectWords } = require('./wordBank')
 
 function startGame(io, roomCode) {
   const room = getRoom(roomCode)
