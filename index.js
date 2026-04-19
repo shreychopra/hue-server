@@ -25,14 +25,13 @@ io.on('connection', (socket) => {
   console.log('Player connected:', socket.id)
 
   // --- SET MODE (host only) ---
-  io.on('connection', (socket) => {
-    socket.on('set_mode', ({ code, mode }) => {
-      const room = getRoom(code)
-      if (!room) return
-      if (room.hostId !== socket.id) return
-      setRoomMode(code, mode)
-      io.to(code).emit('mode_changed', { mode })
-    })
+  socket.on('set_mode', ({ code, mode }) => {
+    const room = getRoom(code)
+    if (!room) return
+    if (room.hostId !== socket.id) return
+    setRoomMode(code, mode)
+    console.log(`Room ${code} mode set to ${mode}`)
+    io.to(code).emit('mode_changed', { mode })
   })
 
   // --- CREATE ROOM ---
